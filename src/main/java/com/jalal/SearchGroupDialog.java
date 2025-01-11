@@ -136,14 +136,11 @@ public class SearchGroupDialog extends JDialog {
         buttonPanel.add(okButton);
         buttonPanel.add(cancelButton);
 
-        // Add panels to main panel
         mainPanel.add(inputPanel, BorderLayout.CENTER);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        // Add main panel to dialog
         add(mainPanel);
 
-        // Set default button
         getRootPane().setDefaultButton(okButton);
     }
 

@@ -8,22 +8,40 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.PatternSyntaxException;
 
 public class LogParserUI extends JFrame {
+    private static final String PRESETS_FILE = System.getProperty("user.home") + File.separator + "logparser_presets.dat";
     private JTextField filePathField;
     private JTextArea resultArea;
     private JButton browseButton;
     private JButton searchButton;
     private JButton exportButton;
+    private JButton loadPresetButton;
+    private JButton savePresetButton;
     private JButton addGroupButton;
     private JPanel searchGroupsPanel;
+    private JCheckBox includeAfterCheck;
     private List<LogParser.SearchGroup> searchGroups;
     private LogParser logParser;
+    private List<SearchPreset> presets;
 
     public LogParserUI() {
         logParser = new LogParser();
         searchGroups = new ArrayList<>();
+        loadPresets();
         initializeUI();
+    }
+
+    private void loadPresets() {
+        System.out.println("Loading presets from: " + PRESETS_FILE);
+        presets = SearchPreset.loadPresets(PRESETS_FILE);
+        System.out.println("Loaded " + presets.size() + " presets");
+    }
+
+    private void savePresets() {
+        System.out.println("Saving " + presets.size() + " presets to: " + PRESETS_FILE);
+        SearchPreset.savePresets(presets, PRESETS_FILE);
     }
 
     private void initializeUI() {
@@ -41,15 +59,26 @@ public class LogParserUI extends JFrame {
         searchGroupsPanel.setLayout(new BoxLayout(searchGroupsPanel, BoxLayout.Y_AXIS));
         searchGroupsPanel.setBorder(BorderFactory.createTitledBorder("Search Criteria"));
 
+        // Create preset buttons panel
+        JPanel presetPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        loadPresetButton = new JButton("Load Preset");
+        savePresetButton = new JButton("Save Preset");
+        presetPanel.add(loadPresetButton);
+        presetPanel.add(savePresetButton);
+        presetPanel.add(new JSeparator(JSeparator.VERTICAL));
+
         addGroupButton = new JButton("Add Search Group");
-        JPanel addGroupPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        addGroupPanel.add(addGroupButton);
+        presetPanel.add(addGroupButton);
+
+        includeAfterCheck = new JCheckBox("Include Lines After Match");
+        includeAfterCheck.setToolTipText("Show all lines that appear after any match is found");
+        presetPanel.add(includeAfterCheck);
 
         JPanel searchPanel = new JPanel(new BorderLayout());
         JScrollPane searchScroll = new JScrollPane(searchGroupsPanel);
         searchScroll.setPreferredSize(new Dimension(0, 150));
         searchPanel.add(searchScroll, BorderLayout.CENTER);
-        searchPanel.add(addGroupPanel, BorderLayout.SOUTH);
+        searchPanel.add(presetPanel, BorderLayout.SOUTH);
 
         JPanel filePanel = new JPanel(new BorderLayout(5, 5));
         filePanel.setBorder(new EmptyBorder(5, 0, 5, 0));
@@ -64,7 +93,6 @@ public class LogParserUI extends JFrame {
         filePanel.add(filePathField, BorderLayout.CENTER);
         filePanel.add(browseButton, BorderLayout.EAST);
 
-        // Button panel
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         searchButton = new JButton("Search");
         exportButton = new JButton("Export Results");
@@ -86,7 +114,6 @@ public class LogParserUI extends JFrame {
 
         add(mainPanel);
 
-        // Add event listeners
         setupEventListeners();
     }
 
@@ -146,9 +173,46 @@ public class LogParserUI extends JFrame {
 
     private void updateSearchButtonState() {
         searchButton.setEnabled(!searchGroups.isEmpty());
+        savePresetButton.setEnabled(!searchGroups.isEmpty());
     }
 
     private void setupEventListeners() {
+        loadPresetButton.addActionListener(e -> {
+            PresetDialog dialog = new PresetDialog(this, presets, false);
+            dialog.setVisible(true);
+
+            if (dialog.isLoadRequested()) {
+                SearchPreset selectedPreset = dialog.getSelectedPreset();
+                if (selectedPreset != null) {
+                    searchGroups.clear();
+                    searchGroups.addAll(selectedPreset.getSearchGroups());
+                    includeAfterCheck.setSelected(selectedPreset.isIncludeAfterMatch());
+                    refreshSearchGroups();
+                    updateSearchButtonState();
+                }
+            }
+
+            // Update presets list in case any were deleted
+            presets = dialog.getUpdatedPresets();
+            savePresets();
+        });
+
+        savePresetButton.addActionListener(e -> {
+            PresetDialog dialog = new PresetDialog(this, presets, true);
+            dialog.setVisible(true);
+
+            SearchPreset newPreset = dialog.getSelectedPreset();
+            if (newPreset != null) {
+                newPreset = new SearchPreset(
+                    newPreset.getName(),
+                    searchGroups,
+                    includeAfterCheck.isSelected()
+                );
+                presets.add(newPreset);
+                savePresets();
+            }
+        });
+
         addGroupButton.addActionListener(e -> {
             SearchGroupDialog dialog = new SearchGroupDialog(this);
             dialog.setVisible(true);
@@ -188,14 +252,13 @@ public class LogParserUI extends JFrame {
                 return;
             }
 
-            // Perform search in a background thread
             new SwingWorker<Void, Void>() {
                 @Override
                 protected Void doInBackground() throws Exception {
                     searchButton.setEnabled(false);
                     exportButton.setEnabled(false);
                     resultArea.setText("Searching...\n");
-                    logParser.searchInLogFile(filePath, searchGroups, resultArea);
+                    logParser.searchInLogFile(filePath, searchGroups, resultArea, includeAfterCheck.isSelected());
                     return null;
                 }
 
@@ -225,7 +288,6 @@ public class LogParserUI extends JFrame {
             }
         });
 
-        // Initial button state
         updateSearchButtonState();
     }
 

@@ -8,22 +8,33 @@ import java.util.regex.PatternSyntaxException;
 import javax.swing.JTextArea;
 
 public class LogParser {
-    public static class SearchGroup {
+    public static class SearchGroup implements Serializable {
+        private static final long serialVersionUID = 1L;
         private final String text;
         private final String operation;
         private final boolean caseSensitive;
         private final boolean useRegex;
-        private Pattern pattern;
+        private transient Pattern pattern;
 
         public SearchGroup(String text, String operation, boolean caseSensitive, boolean useRegex) throws PatternSyntaxException {
             this.text = text;
             this.operation = operation;
             this.caseSensitive = caseSensitive;
             this.useRegex = useRegex;
+            compilePattern();
+        }
+
+        private void compilePattern() {
             if (useRegex) {
                 int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
                 this.pattern = Pattern.compile(text, flags);
             }
+        }
+
+        // This is called when the object is deserialized
+        private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
+            in.defaultReadObject();
+            compilePattern();
         }
 
         public String getText() {
@@ -52,11 +63,12 @@ public class LogParser {
         }
     }
 
-    public void searchInLogFile(String filePath, List<SearchGroup> searchGroups, JTextArea resultArea) {
+    public void searchInLogFile(String filePath, List<SearchGroup> searchGroups, JTextArea resultArea, boolean includeAfterMatch) {
         try (BufferedReader reader = new BufferedReader(new FileReader(filePath))) {
             String line;
             int lineNumber = 0;
             int matchCount = 0;
+            boolean includeRemaining = false;
             
             // Write header to result area
             StringBuilder results = new StringBuilder();
@@ -67,6 +79,9 @@ public class LogParser {
                 }
                 results.append(searchGroups.get(i).toString());
             }
+            if (includeAfterMatch) {
+                results.append("\n(Including all lines after matches)");
+            }
             results.append("\n\n");
             results.append("Source Log File: ").append(filePath).append("\n");
             results.append("Search Time: ").append(LocalDateTime.now()).append("\n\n");
@@ -75,8 +90,15 @@ public class LogParser {
             
             while ((line = reader.readLine()) != null) {
                 lineNumber++;
-                if (matchesCriteria(line, searchGroups)) {
+                boolean matches = matchesCriteria(line, searchGroups);
+                
+                if (matches) {
                     matchCount++;
+                    results.append("Line ").append(lineNumber).append(": ").append(line).append("\n");
+                    if (includeAfterMatch) {
+                        includeRemaining = true;
+                    }
+                } else if (includeRemaining) {
                     results.append("Line ").append(lineNumber).append(": ").append(line).append("\n");
                 }
             }
